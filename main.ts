@@ -19,18 +19,21 @@ interface CachedItem {
   timestampInMs: number;
   info: string;
 }
+
 type CachedCallType = Partial<Record<DataSourceType, CachedItem>>;
 
 interface WeatherPluginSettings {
   source: DataSourceType;
   cacheSeconds: number;
   addRibbon: boolean;
+  location: string;
 }
 
 const DEFAULT_SETTINGS: WeatherPluginSettings = {
   source: "not-selected",
   cacheSeconds: 300,
   addRibbon: true,
+  location: "",
 };
 
 const selectedIcon = feather.icons["sun"].toSvg({
@@ -40,8 +43,8 @@ const selectedIcon = feather.icons["sun"].toSvg({
 
 /**
  * https://stackoverflow.com/questions/679915/how-do-i-test-for-an-empty-javascript-object
- * @param obj 
- * @returns 
+ * @param obj
+ * @returns
  */
 const isEmptyObj = (obj: any) => {
   return obj // 👈 null and undefined check
@@ -128,7 +131,8 @@ export default class WeatherPlugin extends Plugin {
           const weatherInfo = await fetchWeather(
             this.settings.source,
             this.settings.cacheSeconds,
-            this.cachedPrevCall
+            this.cachedPrevCall,
+            this.settings
           );
           k.hide();
           editor.replaceRange(weatherInfo.info, editor.getCursor());
@@ -167,7 +171,8 @@ export default class WeatherPlugin extends Plugin {
           const weatherInfo = await fetchWeather(
             this.settings.source,
             this.settings.cacheSeconds,
-            this.cachedPrevCall
+            this.cachedPrevCall,
+            this.settings
           );
           k.hide();
           editor.replaceRange(weatherInfo.info, editor.getCursor());
@@ -218,7 +223,8 @@ export default class WeatherPlugin extends Plugin {
 const fetchWeather = async (
   source: DataSourceType,
   cacheSeconds: number,
-  cachedPrevCall: CachedCallType
+  cachedPrevCall: CachedCallType,
+  settings: WeatherPluginSettings
 ) => {
   const currTimestampMs = Date.now();
   if (
@@ -234,7 +240,8 @@ const fetchWeather = async (
     }
   }
   if (source === "wttr") {
-    const res1 = await fetch("https://wttr.in/?format=4");
+    const location = settings.location?.trim();
+    const res1 = await fetch(`https://wttr.in/${location ? location : ""}?format=4`);
     const res2 = await res1.text();
     const newItem = {
       source: source,
@@ -259,11 +266,11 @@ class WeatherSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    const { containerEl } = this;
+    const {containerEl} = this;
 
     containerEl.empty();
 
-    containerEl.createEl("h1", { text: `${this.plugin.manifest.name}` });
+    containerEl.createEl("h1", {text: `${this.plugin.manifest.name}`});
 
     new Setting(containerEl)
       .setName("Data Provider")
@@ -291,6 +298,29 @@ class WeatherSettingTab extends PluginSettingTab {
             } else {
               this.plugin.addWeatherCommand();
               this.plugin.addWeatherRibbon();
+            }
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Location for wttr.in")
+      .setDesc("Enter a specific location (city, region, etc.) for weather data.")
+      .addText((text) => {
+        text
+          .setPlaceholder("e.g., Berlin, Germany")
+          .setValue(this.plugin.settings.location ?? "") // Provide default empty string
+          .onChange(async (value) => {
+            this.plugin.settings.location = value;
+            await this.plugin.saveSettings();
+          });
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Update Weather")
+          .onClick(async () => {
+            await this.plugin.saveSettings();
+            if (this.plugin.weatherRibbon) {
+              new Notice("Weather location updated successfully!");
             }
           });
       });
@@ -329,7 +359,7 @@ class WeatherSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("h2", { text: "License" });
+    containerEl.createEl("h2", {text: "License"});
     const licenseDiv = containerEl.createEl("div");
     licenseDiv.createEl("p", {
       text: "The source code of the plugin is released under Apache-2 license. See the repo for more information:",
